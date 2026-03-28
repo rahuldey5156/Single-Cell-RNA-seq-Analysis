@@ -35,7 +35,8 @@ packageNames <- c(
   "SingleCellExperiment", # SCE object framework
   "scater",               # scRNA-seq QC and visualisation
   "scran",                # normalisation and HVG detection
-  "annotate"              # gene annotation utilities
+  "annotate",             # gene annotation utilities
+  "dplyr"                 # vectorised data manipulation (case_when)
 )
 
 libraryLoads <- lapply(packageNames, library, character.only = TRUE)
@@ -104,12 +105,12 @@ filtering.  In practice filtering is checked against biological features in the 
 ```{r qc_process_data, echo=FALSE}
 print("Checking Internal Controls...")
 is.spike <- grepl("^ERCC", rownames(sce))
-print(paste0("Count Spike: ",count(is.spike)))
+print(paste0("Count Spike: ", sum(is.spike)))
 
 #This list of identifiers was obtained from ENSEMBL
 mitogenes="ENSMUSG00000064336|ENSMUSG00000064337|ENSMUSG00000064338|ENSMUSG00000064339|ENSMUSG00000064340|ENSMUSG00000064341|ENSMUSG00000064342|ENSMUSG00000064343|ENSMUSG00000064344|ENSMUSG00000064345|ENSMUSG00000064346|ENSMUSG00000064347|ENSMUSG00000064348|ENSMUSG00000064349|ENSMUSG00000064350|ENSMUSG00000064351|ENSMUSG00000064352|ENSMUSG00000064353|ENSMUSG00000064354|ENSMUSG00000064355|ENSMUSG00000064356|ENSMUSG00000064357|ENSMUSG00000064358|ENSMUSG00000064359|ENSMUSG00000064360|ENSMUSG00000064361|ENSMUSG00000065947|ENSMUSG00000064363|ENSMUSG00000064364|ENSMUSG00000064365|ENSMUSG00000064366|ENSMUSG00000064367|ENSMUSG00000064368|ENSMUSG00000064369|ENSMUSG00000064370|ENSMUSG00000064371|ENSMUSG00000064372"
 is.mito <- grepl(mitogenes, rownames(sce))
-print(paste0("Count Mito: ",count(is.mito)))
+print(paste0("Count Mito: ", sum(is.mito)))
 
 #Check spikes
 which(is.spike, arr.ind = FALSE, useNames = TRUE)
@@ -260,31 +261,21 @@ length(assignments$score$G2M)
 length(assignments$score$S)
 length(colnames(sce))
 
-#Threshold based upon assignment scores
-G1_flag <-assignments$score$G1 >0.5
-G2M_flag <-assignments$score$G2M >0.5
-S_flag <-assignments$score$S >0.5
+# Threshold based upon assignment scores
+G1_flag  <- assignments$score$G1  > 0.5
+G2M_flag <- assignments$score$G2M > 0.5
+S_flag   <- assignments$score$S   > 0.5
 
-
-#This code is required because we need to guarentee a single unique cell cycle stage assignment
-cell_cycle_factor<-vector('character')
-
-i<- 1
-while(i <= length(colnames(sce))){
-  
-  if(G1_flag[i] && !G2M_flag[i] && !S_flag[i]){
-    cell_cycle_factor<-c(cell_cycle_factor,"G1")
-  }else if(G2M_flag[i] && !G1_flag[i] && !S_flag[i]) {
-    cell_cycle_factor<-c(cell_cycle_factor,"G2M")
-  }else if(S_flag[i] && !G2M_flag[i] && !G1_flag[i]){
-    cell_cycle_factor<-c(cell_cycle_factor,"S")
-  }else{
-    cell_cycle_factor<-c(cell_cycle_factor,"None")
-  }
-  
-  i<-i+1
-  
-}
+# Assign a unique cell cycle phase per cell using vectorised logic.
+# A cell is assigned to a phase only if it scores above 0.5 for that phase
+# and below 0.5 for the other two, ensuring mutually exclusive assignments.
+# Cells that do not meet this criterion are labelled "None".
+cell_cycle_factor <- dplyr::case_when(
+  G1_flag  & !G2M_flag & !S_flag  ~ "G1",
+  G2M_flag & !G1_flag  & !S_flag  ~ "G2M",
+  S_flag   & !G2M_flag & !G1_flag ~ "S",
+  TRUE                             ~ "None"
+)
 
 class(cell_cycle_factor)
 length(cell_cycle_factor)
