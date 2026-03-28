@@ -1,0 +1,15 @@
+cat > .gitignore << 'EOF'
+# Large data files
+*.rds
+*.tar
+*.gz
+*.fastq
+
+# R temporary files
+.Rhistory
+.RData
+.Rproj.user/
+
+# System files
+.DS_Store
+EOF
