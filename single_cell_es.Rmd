@@ -127,6 +127,15 @@ hist(sce$stats$sum/1e6, xlab="Library sizes (millions)", main="",
 hist(sce$stats$detected, xlab="Number of detected genes", main="", 
      breaks=20, col="grey80", ylab="Number of cells")
 
+# MAD = 3 is the standard threshold recommended by Lun et al. (2016) for
+# scRNA-seq QC. It is robust to outliers and assumes that most cells in the
+# experiment are of acceptable quality. Using 3 MADs retains ~99% of cells
+# from a normal distribution, making it conservative enough to avoid removing
+# real biological variation while still catching poor-quality libraries.
+# Library size and feature count are filtered from below (damaged/empty cells
+# have unusually low counts), while mitochondrial and spike proportions are
+# filtered from above (high values indicate cytoplasmic RNA loss or failed
+# library preparation).
 libsize.drop <- isOutlier(sce$stats$sum, nmads=3, type="lower", log=TRUE)
 feature.drop <- isOutlier(sce$stats$detected, nmads=3, type="lower", log=TRUE)
 
@@ -689,7 +698,13 @@ normt.exprs <- t(exprs(sce))
 correlated <- cor(normt.exprs,normt.exprs[,"Zscan4a"],method="spearman")
 correlated <-correlated[order(correlated,decreasing=T),]
 
-keep_me <- as.numeric(correlated) >0.4
+# Spearman correlation threshold of 0.4 was chosen to identify genes with a
+# moderate-to-strong co-expression relationship with Zscan4a. This is a
+# deliberately inclusive threshold — a stricter cutoff (e.g. 0.6) would miss
+# genuine 2C-like co-expressed genes that show noisy single-cell expression.
+# Spearman rank correlation is used rather than Pearson as it is more robust
+# to the zero-inflated, non-normally distributed counts typical in scRNA-seq.
+keep_me <- as.numeric(correlated) > 0.4
 table(keep_me)
 
 keep_names <-rownames(as.matrix(correlated[keep_me]))
@@ -702,9 +717,17 @@ heat.vals <- norm.exprs - rowMeans(norm.exprs)
 #add pretty heatmap here...
 pheatmap(heat.vals, show_colnames = F,annotation_col=experiment,fontsize_row = 6)
 
+```
 
+***
 
+## Session Information
 
+Recording the session information ensures this analysis is fully reproducible.
+All package versions, R version, and operating system details are captured here.
+
+```{r session_info, echo=TRUE}
+sessionInfo()
 ```
 
 
