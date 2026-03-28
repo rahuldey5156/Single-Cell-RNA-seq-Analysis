@@ -18,7 +18,25 @@ output:
 ```{r setup, include=TRUE,echo=FALSE}
 knitr::opts_chunk$set(echo = FALSE)
 
-packageNames <- c("plotly", "Rtsne", "edgeR", "tximport", "org.Mm.eg.db", "gplots", "pheatmap", "tximport","limma","org.Mm.eg.db","gplots","edgeR","ggplot2","gridExtra","plotly","Rtsne","gridExtra","pkgconfig","RColorBrewer","Cairo","SingleCellExperiment","scater","scran","annotate")
+packageNames <- c(
+  "plotly",               # interactive plots
+  "Rtsne",                # tSNE dimensionality reduction
+  "edgeR",                # count data utilities
+  "tximport",             # import Kallisto quantifications
+  "org.Mm.eg.db",         # mouse gene annotation
+  "gplots",               # heatmap.2
+  "pheatmap",             # pretty heatmaps
+  "limma",                # linear models for RNA-seq
+  "ggplot2",              # plotting
+  "gridExtra",            # multi-panel plots
+  "pkgconfig",            # package configuration
+  "RColorBrewer",         # colour palettes
+  "Cairo",                # graphics device
+  "SingleCellExperiment", # SCE object framework
+  "scater",               # scRNA-seq QC and visualisation
+  "scran",                # normalisation and HVG detection
+  "annotate"              # gene annotation utilities
+)
 
 libraryLoads <- lapply(packageNames, library, character.only = TRUE)
 
@@ -593,27 +611,14 @@ Plots are relatively stable.  This suggests that the features detected in the da
 
 ```{r total_tSNE2, echo=FALSE}
 
-sce_test <-sce
-set.seed(MY_SEED)
-sce_test <-runTSNE(sce_test, feature_set=chosen,perplexity=5)
-tSNEList1 <-plotTSNE(sce_test,colour_by="sum") +FONTSIZE +ggtitle("Perplexity 5")
-set.seed(MY_SEED)
-sce_test <-runTSNE(sce_test, feature_set=chosen,perplexity=10)
-tSNEList2<-plotTSNE(sce_test,colour_by="sum") +FONTSIZE +ggtitle("Perplexity 10")
-set.seed(MY_SEED)
-sce_test <-runTSNE(sce_test, feature_set=chosen,perplexity=15)
-tSNEList3 <-plotTSNE(sce_test,colour_by="sum") +FONTSIZE +ggtitle("Perplexity 15")
-set.seed(MY_SEED)
-sce_test <-runTSNE(sce_test, feature_set=chosen,perplexity=20)
-tSNEList4 <-plotTSNE(sce_test,colour_by="sum") +FONTSIZE +ggtitle("Perplexity 20")
+# Run tSNE perplexity scan coloured by library size
+# Uses helper function defined in single_cell_functions2.R
+tsne_plots_sum <- run_tsne_perplexity_scan(sce, chosen, colour_by = "sum")
+gridExtra::grid.arrange(grobs = tsne_plots_sum, ncol = 2)
 
-tSNEList1
-tSNEList2
-tSNEList3
-tSNEList4
-
+# Set final tSNE using chosen perplexity of 10 (stable across perplexity range)
 set.seed(MY_SEED)
-sce <-runTSNE(sce, feature_set=chosen,perplexity=10)
+sce <- runTSNE(sce, feature_set = chosen, perplexity = 10)
 
 ```
 
@@ -634,24 +639,17 @@ colnames2.keep<- as.character(targets$ERR) %in% colnames(sce)
 sum(colnames2.keep)
 
 
-set.seed(MY_SEED)
-sce_temp<-sce
-sce_temp <-runTSNE(sce_temp, feature_set=chosen,perplexity=5)
-tSNEList1 <-plotTSNE(sce_temp,colour_by="Type") +FONTSIZE +ggtitle("All samples Perplexity 5")
-set.seed(MY_SEED)
-sce_temp <-runTSNE(sce_temp, feature_set=chosen,perplexity=10)
-tSNEList2<-plotTSNE(sce_temp,colour_by="Type") +FONTSIZE +ggtitle("All samples Perplexity 10")
-set.seed(MY_SEED)
-sce_temp <-runTSNE(sce_temp, feature_set=chosen,perplexity=15)
-tSNEList3 <-plotTSNE(sce_temp,colour_by="Type") +FONTSIZE +ggtitle("All samples Perplexity 15")
-set.seed(MY_SEED)
-sce_temp <-runTSNE(sce_temp, feature_set=chosen,perplexity=20)
-tSNEList4 <-plotTSNE(sce_temp,colour_by="Type") +FONTSIZE +ggtitle("All samples Perplexity 20")
-gridExtra::grid.arrange(tSNEList1,tSNEList2,tSNEList3,tSNEList4,ncol=2)
+# Run tSNE perplexity scan coloured by culture condition (Type)
+tsne_plots_type <- run_tsne_perplexity_scan(sce, chosen, colour_by = "Type",
+                                             labels = c("All samples Perplexity 5",
+                                                        "All samples Perplexity 10",
+                                                        "All samples Perplexity 15",
+                                                        "All samples Perplexity 20"))
+gridExtra::grid.arrange(grobs = tsne_plots_type, ncol = 2)
 
-#single plot
+# Single final plot at chosen perplexity of 10
 set.seed(MY_SEED)
-plotTSNE(sce,colour_by="Type") +FONTSIZE +ggtitle("Perplexity 10 ")
+plotTSNE(sce, colour_by = "Type") + FONTSIZE + ggtitle("Perplexity 10")
 ```
 
 
