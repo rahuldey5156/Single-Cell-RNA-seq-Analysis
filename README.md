@@ -1,19 +1,6 @@
 # Single-Cell RNA-seq Analysis of Mouse Embryonic Stem Cells
 
 A fully reproducible R-based analysis of single-cell RNA-sequencing data from mouse embryonic stem cells (mESCs) grown under three culture conditions. The analysis identifies transcriptional differences between conditions at single-cell resolution and characterises a rare 2C-like totipotent cell subpopulation using Zscan4 gene family expression and correlation-based gene discovery.
-
-This project reproduces and extends key findings from:
-
-> Kolodziejczyk AA et al. (2015). *Single Cell RNA-Sequencing of Pluripotent States Unlocks Modular Transcriptional Variation.* Cell Stem Cell, 17(4):471–85. [DOI: 10.1016/j.stem.2015.09.011](https://doi.org/10.1016/j.stem.2015.09.011)
-
----
-
-## Background
-
-Embryonic stem cells were cultured under three conditions — **serum**, **2i+LIF**, and **a2i** — and profiled by single-cell RNA-seq (scRNA-seq). The dataset (ArrayExpress accession [E-MTAB-2600](https://www.ebi.ac.uk/arrayexpress/experiments/E-MTAB-2600/)) comprises 869 individual cells with paired-end sequencing libraries.
-
-A key biological question is whether a rare **2C-like cell state** (previously identified in bulk RNA-seq) can be detected at single-cell resolution. 2C-like cells express a signature enriched for Zscan4-family genes and are thought to represent a transient totipotent-like state that ES cells cycle through in culture.
-
 ---
 
 ## Repository Structure
@@ -112,21 +99,6 @@ Culture conditions separate cleanly by tSNE and PCA. A small subpopulation of 2i
 
 ---
 
-## Code Refactoring and Version Control
-
-This repository demonstrates a version-controlled development workflow with two stages of commits:
-
-- **Initial commit** — working analysis code rendered from the original tutorial
-- **Refactoring commits** — a series of improvements made to the code:
-  - Removed duplicate and defunct package calls (`scde` was listed but discontinued)
-  - Replaced repetitive tSNE perplexity scan blocks with a reusable `run_tsne_perplexity_scan()` function
-  - Replaced an iterative `while` loop for cell cycle assignment with vectorised `dplyr::case_when()`
-  - Replaced deprecated `multiplot()` with `gridExtra::grid.arrange()`
-  - Added biological reasoning comments explaining key analytical thresholds (MAD=3, correlation > 0.4)
-  - Added `sessionInfo()` for full reproducibility documentation
-
----
-
 ## Requirements
 
 ### R version
@@ -221,15 +193,3 @@ Rscript -e "rmarkdown::render('single_cell_es.Rmd', output_format='html_document
 All random seeds are fixed via `set.seed(100)` (defined in `single_cell_functions2.R`).
 
 ---
-
-## References
-
-1. Kolodziejczyk AA et al. (2015). Single Cell RNA-Sequencing of Pluripotent States Unlocks Modular Transcriptional Variation. *Cell Stem Cell* 17(4):471–85.
-2. Kim JK, Kolodziejczyk AA et al. (2015). Characterizing noise structure in single-cell RNA-seq distinguishes genuine from technical stochastic allelic expression. *Nat Commun* 6:8687.
-3. Lun AT, McCarthy DJ, Marioni JC (2016). A step-by-step workflow for low-level analysis of single-cell RNA-seq data with Bioconductor. *F1000Res* 5:2122.
-
----
-
-## License
-
-This analysis code is shared for educational and reproducibility purposes. The underlying data are subject to the terms of [E-MTAB-2600](https://www.ebi.ac.uk/arrayexpress/experiments/E-MTAB-2600/).
