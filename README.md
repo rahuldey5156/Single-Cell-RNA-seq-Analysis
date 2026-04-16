@@ -16,20 +16,22 @@ The repository is organized into independent workflows. Both pipelines utilize t
 ```
 Single-Cell-RNA-seq-Analysis/
 ├── README.md                   # Root documentation (this file)
-├── counts_matrix.csv           # Shared raw gene expression data (Ensembl IDs)
-├── E-MTAB-2600.targets.txt     # Shared metadata (Conditions: 2i, a2i, Serum)
-│
-├── r_bioconductor/             # R Workflow Directory
-│   ├── README.md               # Technical details for R implementation
-│   ├── single_cell_es.Rmd      # Analysis source code
-│   ├── single_cell_es.pdf      # Formatted scientific report & findings
-│   ├── single_cell_functions2.R # Modularized R helper functions
-│   └── tx2gene.csv             # Transcript-to-gene mapping file
-│
-└── python_scanpy/              # Python Workflow Directory
-    ├── README.md               # Technical details for Python implementation
-    ├── single_cell_analysis.py  # Analysis source code
-    └── requirements.txt        # Minimalist dependency list (Scanpy/Scikit-misc)
+├── Python_Scanpy/              # Python Implementation
+│   ├── counts_matrix.csv       # Raw gene expression data
+│   ├── README.md               # Python technical documentation
+│   ├── single_cell_analysis.py # Python analysis source code
+│   ├── requirements.txt        # Python dependency list
+│   └── figures/                # Generated QC and analysis plots
+└── R_Bioconductor/             # R Implementation
+    ├── README.md               # R technical documentation
+    ├── E-MTAB-2600.targets.txt # Metadata (Conditions: 2i, a2i, Serum)
+    ├── single_cell_es.Rmd      # R analysis source code
+    ├── single_cell_es.html     # Rendered HTML report
+    ├── single_cell_es.pdf      # Final scientific report
+    ├── single_cell_functions2.R # Modularized R functions
+    ├── hsc_cor.tsv             # Spearman correlation results (R)
+    ├── hsc_hvg.tsv             # Highly Variable Genes list (R)
+    └── tx2gene.csv             # Transcript-to-gene mapping file
 ```
 
 ## Biological Summary
