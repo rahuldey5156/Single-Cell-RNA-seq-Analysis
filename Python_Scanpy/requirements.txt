@@ -1,0 +1,13 @@
+# Core Analysis
+scanpy>=1.10.0
+pandas
+numpy
+scipy
+
+# Visualization
+matplotlib
+seaborn
+
+# Critical Dependencies for Seurat v3 and conflicts
+scikit-misc
+pyarrow<22

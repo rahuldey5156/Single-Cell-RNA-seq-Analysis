@@ -1,0 +1,733 @@
+---
+title: "single_cell_es.Rmd"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+---
+title: "Single_Cell_Workflow ES data"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+## Load Main Libraries for the Analysis
+
+  
+```{r setup, include=TRUE,echo=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+
+packageNames <- c(
+  "plotly",               # interactive plots
+  "Rtsne",                # tSNE dimensionality reduction
+  "edgeR",                # count data utilities
+  "tximport",             # import Kallisto quantifications
+  "org.Mm.eg.db",         # mouse gene annotation
+  "gplots",               # heatmap.2
+  "pheatmap",             # pretty heatmaps
+  "limma",                # linear models for RNA-seq
+  "ggplot2",              # plotting
+  "gridExtra",            # multi-panel plots
+  "pkgconfig",            # package configuration
+  "RColorBrewer",         # colour palettes
+  "Cairo",                # graphics device
+  "SingleCellExperiment", # SCE object framework
+  "scater",               # scRNA-seq QC and visualisation
+  "scran",                # normalisation and HVG detection
+  "annotate",             # gene annotation utilities
+  "dplyr"                 # vectorised data manipulation (case_when)
+)
+
+libraryLoads <- lapply(packageNames, library, character.only = TRUE)
+
+#load scripts
+source("./single_cell_functions2.R")
+
+#set the global randon seed used for analysis
+set.seed(MY_SEED)
+
+
+knitr::opts_knit$set(root.dir = normalizePath(getwd())) 
+knitr::opts_knit$get("root.dir") 
+
+
+```
+***
+
+## Read Kallisto Counts and Associated Input Data (Spikes and Mitochondrial Gene IDs)
+```{r read_input, echo=FALSE}
+
+library(tximport)
+library("SingleCellExperiment")
+
+
+#Fast Load the data  from the Kallisto alignments
+#This data was saved previously after loading data using the "slow" method
+kallistoFiles <-readRDS(file = "./single_es_tximport.rds")
+sce <- SingleCellExperiment(assays=list(counts=kallistoFiles$counts,abundance=kallistoFiles$abundance))
+
+
+#Slow method -read the actual Kallisto alignment files
+#This commented out code is for information only!!
+
+#files <- dir("/shared_files/FGT_T10/outdir_final_data", pattern="abundance.tsv", full=TRUE, recursive=TRUE)
+#stopifnot(all(file.exists(files)))
+#txi <- tximport(files, type = "kallisto", tx2gene = tx2gene)
+#sce <- SingleCellExperiment(assays=list(counts=txi$counts,abundance=txi$abundance))
+
+#assign colnames for the files object
+#grr<-strsplit(files,"/")
+#grr <-as.data.frame(do.call(cbind, grr))
+#grr <- data.frame(lapply(grr, as.character), stringsAsFactors=FALSE)
+#colnames(sce)<-t(grr[5,])
+
+
+```
+The dataset contains ERCC spikes and these spikes are identified as beginning with "ERCC".  
+
+Mitochondrial genes are loaded using a short list of mitochondrially encoded mouse genes from Ensembl.  These spikes are then used to calculate QC metrics from the files together with library size feature count metrics and total library size for each cell.  Cells were excluded if feature counts,library size, mitochondrial reads or ERCC spike counts were more than 3 Median Absolute Deviations from the Median of these catagories per cell. Plots were used to check this threshold against the distribution of the data.
+***
+
+##Calculate Initial Quality Control Metrics
+
+Select only samples that pass the basic Sample QC criteria
+*  library size must not be less than 3 Median Absolute Deviations from median size
+*  total_features_by_counts not be less than 3 Median Absolute Deviations from median counts
+*  mitochondrial counts  must be more than 3 Median Absolute Deviations from median counts
+*  total spike counts must be more than 3 Median Absolute Deviations from median counts
+
+This approach is designed to remove samples which deviate from the median.  The risk is that we throw away real biology with this
+filtering.  In practice filtering is checked against biological features in the data to ensure bias is not introduced by this step.
+
+***
+
+```{r qc_process_data, echo=FALSE}
+print("Checking Internal Controls...")
+is.spike <- grepl("^ERCC", rownames(sce))
+print(paste0("Count Spike: ", sum(is.spike)))
+
+#This list of identifiers was obtained from ENSEMBL
+mitogenes="ENSMUSG00000064336|ENSMUSG00000064337|ENSMUSG00000064338|ENSMUSG00000064339|ENSMUSG00000064340|ENSMUSG00000064341|ENSMUSG00000064342|ENSMUSG00000064343|ENSMUSG00000064344|ENSMUSG00000064345|ENSMUSG00000064346|ENSMUSG00000064347|ENSMUSG00000064348|ENSMUSG00000064349|ENSMUSG00000064350|ENSMUSG00000064351|ENSMUSG00000064352|ENSMUSG00000064353|ENSMUSG00000064354|ENSMUSG00000064355|ENSMUSG00000064356|ENSMUSG00000064357|ENSMUSG00000064358|ENSMUSG00000064359|ENSMUSG00000064360|ENSMUSG00000064361|ENSMUSG00000065947|ENSMUSG00000064363|ENSMUSG00000064364|ENSMUSG00000064365|ENSMUSG00000064366|ENSMUSG00000064367|ENSMUSG00000064368|ENSMUSG00000064369|ENSMUSG00000064370|ENSMUSG00000064371|ENSMUSG00000064372"
+is.mito <- grepl(mitogenes, rownames(sce))
+print(paste0("Count Mito: ", sum(is.mito)))
+
+#Check spikes
+which(is.spike, arr.ind = FALSE, useNames = TRUE)
+which(is.mito, arr.ind = FALSE, useNames = TRUE)
+
+#Calculate QC metrics
+sce$stats <- perCellQCMetrics(sce, subsets=list(ERCC=is.spike, Mt=is.mito))
+
+
+#Plot the results
+par(mfrow=c(1,2))
+hist(sce$stats$sum/1e6, xlab="Library sizes (millions)", main="", 
+     breaks=20, col="grey80", ylab="Number of cells")
+hist(sce$stats$detected, xlab="Number of detected genes", main="", 
+     breaks=20, col="grey80", ylab="Number of cells")
+
+# MAD = 3 is the standard threshold recommended by Lun et al. (2016) for
+# scRNA-seq QC. It is robust to outliers and assumes that most cells in the
+# experiment are of acceptable quality. Using 3 MADs retains ~99% of cells
+# from a normal distribution, making it conservative enough to avoid removing
+# real biological variation while still catching poor-quality libraries.
+# Library size and feature count are filtered from below (damaged/empty cells
+# have unusually low counts), while mitochondrial and spike proportions are
+# filtered from above (high values indicate cytoplasmic RNA loss or failed
+# library preparation).
+libsize.drop <- isOutlier(sce$stats$sum, nmads=3, type="lower", log=TRUE)
+feature.drop <- isOutlier(sce$stats$detected, nmads=3, type="lower", log=TRUE)
+
+
+par(mfrow=c(1,2))
+hist(sce$stats$subsets_Mt_percent, xlab="Mitochondrial proportion (%)", 
+     ylab="Number of cells", breaks=20, main="", col="grey80")
+hist(sce$stats$subsets_ERCC_percent, xlab="ERCC proportion (%)", 
+     ylab="Number of cells", breaks=20, main="", col="grey80")
+
+mito.drop <- isOutlier(sce$stats$subsets_Mt_percent, nmads=3, type="higher")
+spike.drop <- isOutlier(sce$stats$subsets_ERCC_percent, nmads=3, type="higher")
+
+#make a copy of the main object for later...
+sceX <-sce
+
+#Drop Samples that fail the Quality filtering
+sce <- sce[,!(libsize.drop | feature.drop | mito.drop | spike.drop)]
+
+```
+
+## After Completion of QC Filtering of Individual Cell Libraries
+This table summarises the number of elements removed by each filtering step and the 
+number of cell sample libraries remaining in the data.
+***
+
+```{r qc_process_data15, echo=TRUE}
+data.frame(ByLibSize=sum(libsize.drop), ByFeature=sum(feature.drop),
+           ByMito=sum(mito.drop), BySpike=sum(spike.drop), Remaining=ncol(sce))
+
+print("Dimensions finished object")
+dim(sce)
+print("Dimensions finished starting object")
+dim(sceX)
+
+colnames(sce)
+
+```
+## Sample Quality Plots after Removing Poor Quality Samples
+This summarises the filtering of samples from the data
+***
+
+```{r qc_process_data2, echo=FALSE}
+#check what's been removed
+
+#recalculate the stats for selected elements only
+#all genes are included at this stage...
+sce$stats_selected_cells <- perCellQCMetrics(sce, subsets=list(ERCC=is.spike, Mt=is.mito))
+
+#par sets up a panel plot 2x2 in dimension
+par(mfrow=c(2,2))
+hist(sce$stats_selected_cells$sum/1e6, xlab="Library sizes (millions)", main="", 
+     breaks=20, col="grey80", ylab="Number of cells")
+hist(sce$stats_selected_cells$detected, xlab="Number of expressed genes", main="", 
+     breaks=20, col="grey80", ylab="Number of cells")
+hist(sce$stats_selected_cells$subsets_Mt_percent, xlab="Mitochondrial proportion (%)", 
+     ylab="Number of cells", breaks=20, main="", col="grey80")
+hist(sce$stats_selected_cells$subsets_ERCC_percent, xlab="ERCC proportion (%)", 
+     ylab="Number of cells", breaks=20, main="", col="grey80")
+
+par(mfrow=c(1,1))
+```
+### QC filters All Libraries Combined
+Initial PCA plot using log tranformed input data.  Data has not been normalised within R although is normalised to length normalised counts per million during library loading.  All genes are included in the plots.  Log transformed data has a small count (0.01) added to each count to be normalised to avoid problems with log of 0 values.  The PCA plot is calculated off all genes in the samples.    
+
+The PCA plot shows two PCA dimensions that account for 18% of the variance.  These dimensions seem to separate cell culture conditions (confirmed later).  Given this PCA uses all genes in the data set the partitioning of the variance into these components is very promising.
+
+***
+
+
+## PCA of Raw Log Counts (Just Log Transformed) without Normalisation
+This plot just shows the general structure of the prior to normalisation.  It uses as input all the data, concluding genes with low or zero counts
+
+```{r qc_process_data3, echo=FALSE}
+
+
+#This deals with potential log(0) outcomes 
+logabit <-function(xv){
+  return (log2(xv+0.01))
+  }
+
+assays(sce)$logcounts<-logabit(assays(sce)$counts)
+sce <-runPCA(sce,exprs_values="logcounts")
+reducedDimNames(sce)
+plotReducedDim(sce,dimred = "PCA")
+```
+
+
+***
+
+## Conversion to Gene Names from Ensembl IDs as Primary Identifiers
+
+Row names were Ensembl gene names (collapsed from transcripts).  Here these identifiers  are converted to Gene Symbols using Ensembl annotation.  There are one or two genes with ambiguous mappings and so the Ensembl mapping is stored in the ENSEMBL slot and the gene mapping in the SYMBOL slot.  This makes the mapping reversible if required. The mapping uses the mouse annotation library available from Bioconductor (org.Mm.eg.db).  Row names were switched to gene names (Gene Symbol) for the rest of this analysis.
+
+Note this data has a few genes with ambiguous identifiers- these cannot be further analysed using this approach-primary keys could switch to ENSG_MGI identifiers to account for this but it complicated the analysis for a few 'edge case' genes and so this was not performed here.  The genes giving ambigous mapping have been individually checked before exclusion!
+
+
+
+```{r annotate, echo=FALSE}
+
+#Ensembl IDs are the primary key-they are unique and all elements ahe these IDs ("Ensembl included Spike names!")
+
+rowData(sce)$ENSEMBL<-rownames(sce)
+
+anno <- AnnotationDbi::select(org.Mm.eg.db, keys=rownames(sce), keytype="ENSEMBL", column="SYMBOL")
+rowData(sce)$SYMBOL <-make.names(anno$SYMBOL[match(rownames(sce), anno$ENSEMBL)],unique=TRUE)
+rownames(sce)<-rowData(sce)$SYMBOL
+
+
+```
+
+***
+
+## Cell Cycle Annotation
+Cells in different phases of the cell cycle can show different expression profiles and different cell types may be on average in different phases of the cell cycle.  The impact of this on our analysis if determined by assigning each cell to a cell cycle phase using the package Cyclone and cell cycle genes from the package Scran.  Cells arw assigned to a unique phase of the cell cycle if they are predicted to assign to one phase of the cell cycle with a score >0.5.  Cells that do not pass this criteria for one cell cycle stage only or not for any cell cycle phase are not assigned.  The cell cycle information is added to a slot called CellCycle in the Single Cell Experiment (sce) object.
+
+Note ambiguous are annotated as _None_
+
+The plot shows G2/M assignments vs G1 for this data- S is also assigned (not shown)
+
+***
+
+```{r qc_process_cellcycle, echo=FALSE}
+mm.pairs <- readRDS(system.file("exdata", "mouse_cycle_markers.rds", package="scran"))
+
+assignments <- cyclone(sce, mm.pairs, gene.names=rowData(sce)$ENSEMBL)
+plot(assignments$score$G1, assignments$score$G2M, xlab="G1 score", ylab="G2/M score", pch=16)
+
+#build cell cycle score table
+length(assignments$score$G1)
+length(assignments$score$G2M)
+length(assignments$score$S)
+length(colnames(sce))
+
+# Threshold based upon assignment scores
+G1_flag  <- assignments$score$G1  > 0.5
+G2M_flag <- assignments$score$G2M > 0.5
+S_flag   <- assignments$score$S   > 0.5
+
+# Assign a unique cell cycle phase per cell using vectorised logic.
+# A cell is assigned to a phase only if it scores above 0.5 for that phase
+# and below 0.5 for the other two, ensuring mutually exclusive assignments.
+# Cells that do not meet this criterion are labelled "None".
+cell_cycle_factor <- dplyr::case_when(
+  G1_flag  & !G2M_flag & !S_flag  ~ "G1",
+  G2M_flag & !G1_flag  & !S_flag  ~ "G2M",
+  S_flag   & !G2M_flag & !G1_flag ~ "S",
+  TRUE                             ~ "None"
+)
+
+class(cell_cycle_factor)
+length(cell_cycle_factor)
+
+
+sce$CellCycle <-cell_cycle_factor
+
+print("Added CellCycle slot to sce object")
+table(colData(sce)$CellCycle)
+length(colData(sce)$CellCycle)
+
+```
+
+***
+
+## Evaluation of Cell Cycle Annotation
+Output of Cell Cycle Predictions plotted onto a PCA plot of the sce data set which has been filtered for poor quality cells but not to remove genes with low read counts.  
+
+There is no obvious partitioning of the cell cycle phased between individual groups- all groups contain a fairly even mixture of phases. 
+
+```{r qc_process_data4, echo=FALSE}
+plotReducedDim(sce,dimred = "PCA", colour_by="CellCycle")+COLOURS_DIS +FONTSIZE+ggtitle("PCA Cell Cycle")
+
+
+```
+
+
+***
+
+## Plot Top 50 Most Highly Expressed Genes from the Combined Data Set
+
+It is important to see that the top 50 genes do not account for most of the sequencing counts!
+Remember that we expect "housekeeping" such as ribosomal proteins and genes involved in basic cellular functions
+
+
+
+```{r copy_highest_expression_plot, echo=FALSE}
+plotHighestExprs(sce, n=50) + FONTSIZE
+```
+## Remove the Spikes and Put These Into an Alt Experiment Within the Single Cell Experiment Object
+
+This moves the spikes out of the main object so that they do not intefere with the normalisation
+of the main data.  Spikes are normalised separately...
+
+
+```{r spike_alt_experiment, echo=FALSE}
+sub_spikes <-grepl("ERCC-",rowData(sce)$ENSEMBL)
+
+#remove spike from main data
+test_sce <-splitAltExps(sce,sub_spikes)
+altExpNames(test_sce)<-"spikes"
+
+#restructure main data object
+sce<-test_sce
+
+```
+
+
+***
+
+## Remove Genes with Low Counts...
+
+Several methods were considered  but here filtering was simply by keeping cells with an average count across all genes of >=1
+
+Filtering makes quite a difference to the analysis and actually several different gene filterings (including no gene filtering) were tried across the analysis before this simple approach was taken.
+In practice this will remove low expressed genes and genes expressed in few cells. These genes are not the target of this analysis..
+
+***
+```{r process_samples, echo=FALSE}
+
+#Test elimination of genes with an averaga count <1 - data not normalised at this stage
+ave.counts <-apply(assays(sce)$counts,1,mean)
+ave.counts.spikes <-apply(assays(altExp(sce,"spikes"))$counts,1,mean)
+
+keep <- ave.counts >= 1
+sum(keep)
+
+num.cells <- nexprs(sce, byrow=TRUE)
+keep_nonzero <-num.cells>0
+
+#alternate keep
+numcells <- nexprs(sce, byrow=TRUE)
+numcells_spike <- nexprs(altExp(sce,"spikes"), byrow=TRUE)
+alt.keep <- numcells >= 10
+sum(alt.keep)
+
+#combine the data for the plot
+ave<-c(ave.counts,ave.counts.spikes)
+
+par(mfrow=c(1,2))
+hist(log10(ave), breaks=100, main="", col="grey80",
+     xlab=expression(Log[10]~"average count"))
+abline(v=log10(1), col="blue", lwd=2, lty=2)
+
+
+#Plot the filtering results 
+smoothScatter(log10(ave), c(numcells,numcells_spike), xlab=expression(Log[10]~"average count"), 
+              ylab="Number of expressing cells")
+is.ercc <- grepl("^ERCC", ave)
+points(log10(ave.counts[is.ercc]), numcells[is.ercc], col="red", pch=16, cex=0.5)
+
+##apply mean filtering...colnames
+print(paste0("Number Genes Before: ",nrow(sce)))
+#sce <- sce[keep,] #select rowa to keep 
+sce <- sce[alt.keep,]
+
+print(paste0("Number Genes After: ",nrow(sce)))
+
+```
+## Remove Bulk Samples that May Still be Present in the Data
+
+***
+```{r process_bulk_samples, echo=FALSE}
+#remove bulk samples at this point
+#annotate as required from targets file IDs must e unique
+targets <-read.csv(file="./E-MTAB-2600.targets.txt",sep='\t')
+colnames.all <-colnames(sce)
+colnames.keep<- as.character(targets$ERR) %in% colnames.all
+targets <-targets[colnames.keep,]
+targets <-targets[match(targets$ERR,colnames.all),]
+
+#sanity check-problem here....
+#targets$ERR
+#colnames(sce)
+sce$Type <-targets$Type
+
+#rename columns in sce to easier names
+colnames(sce)<-targets$ExtractName
+colnames.all <-colnames(sce)
+#remove bulk data (not needed in this analysis)
+sum(lengths(regmatches(colnames.all, gregexpr("bulk", colnames.all))))
+
+keepme  <-colnames.all[!(regexpr("bulk",colnames.all)>0)]
+rownames(targets)<-targets$ExtractName
+targets <-targets[keepme,]
+sce <-sce[,keepme]
+
+length(colnames(sce))
+length(targets$ExtractName)
+colnames.all <-colnames(sce)
+
+print("Bulk Samples Remaining")
+table(targets$Type)
+
+
+```
+
+## Normalisation of Data
+It is not clear if we should use spikes or the data distribution for normalisation.  Data distribution uses the plate ID that contains each cell.  
+
+Normalisation would seek to identify sizeFactors for each cell library that are the scaling factors used to scale each library.
+***
+
+```{r normalisation, echo=FALSE}
+
+#get sizes
+A<-sum(lengths(regmatches(colnames.all, gregexpr("^2i", colnames.all))))
+#B<-sum(lengths(regmatches(colnames.all, gregexpr("^2i_bulk", colnames.all))))
+C<-sum(lengths(regmatches(colnames.all, gregexpr("^a2i", colnames.all))))
+#D<-sum(lengths(regmatches(colnames.all, gregexpr("^a2i_bulk", colnames.all))))
+E <-sum(lengths(regmatches(colnames.all, gregexpr("^serum", colnames.all))))
+#F <-sum(lengths(regmatches(colnames.all, gregexpr("^serum_bulk", colnames.all))))
+
+test_norm1 <- computeSumFactors(sce,sizes=c(A,C,E) )
+test_norm2 <-computeSpikeFactors(sce, "spikes")
+
+par(mfrow=c(1,2))
+plot(sizeFactors(test_norm1), test_norm1$stats_selected_cells$sum/1e6, log="xy",
+     ylab="Library size (millions)", xlab="Size factor",main="Sum Factors")
+
+plot(sizeFactors(test_norm2), test_norm2$stats_selected_cells$sum/1e6, log="xy",main= "Spike",
+     ylab="Library size (millions)", xlab="Size factor")
+
+par(mfrow=c(1,1))
+
+#set in main object
+#This can be confusing- here we are adding the results of computeSumFactors to sce
+sce <-computeSpikeFactors(sce,"spikes", assay.type="counts")
+sce <- computeSumFactors(sce,sizes=c(A,C,E),assay.type="counts") 
+summary(sizeFactors(sce))
+#Normalizing (gene-based factors for genes, spike-in factors for spike-ins)
+
+sce <- logNormCounts(sce) ###this is the current normalisation step...sizeFactors are applied here...
+
+plot(sizeFactors(sce), sce$stats_selected_cells$sum/1e6, log="xy",main= "Size factors sce object",
+     ylab="Library size (millions)", xlab="Size factor")
+
+
+```
+
+## QC Feature counts for Explanatory Variables
+
+This plot just shows some of the features by counts for explanatory variables-here Cell Cycle.  Data is not log transformed
+```{r check_exp_variables, echo=FALSE}
+
+colnames(colData(sce))
+vars <-c("CellCycle")
+vars_res <-getVarianceExplained(sce,vars)
+plotExplanatoryVariables(vars_res) + FONTSIZE
+```
+
+***
+
+## Identify the Highly Variable Genes from the Data.
+Here a loess trendline is fitted to the data to show the mean variance trend
+
+Elements are decomposed into whether the variance observed can be explained by the technical model or is not explained by
+this model and so if likely to come from the biology of individual genes.  In this analysis spikes are plotted but not used for data analysis.  Data from all the individual cell types are included in the analysis.  
+
+Initially HVG genes identified that are FDR <=0.2 and bio >0.5 as potential HGV genes (a very inclusive set)
+Output genes are ordered by decreasing biological variance.  A tab-seperated table is written as "hsc_hvg.tsv".
+
+
+
+The top 30 HVG genes (ordered by their biological expression component) are plotted as a "slug-plot" and typically show robust expression
+
+
+This data is also used for corrlation analysis and the correlated pairs of HGV genes identified.  This table was output as
+"hsc_cor.tsv".  Genes from this table with var.cor$FDR <= 0.01 and summarised.  These genes become the "chosen" feature set used for future tSNE and PCA analysis
+
+***
+
+```{r identify_features, echo=FALSE}
+
+
+var.out <- modelGeneVar(sce)
+
+
+
+plot(var.out$mean, var.out$total, pch=16, cex=0.6, xlab="Mean log-expression", 
+     ylab="Total Variance of log-expression")
+
+o <- order(var.out$mean)
+lines(var.out$mean[o], var.out$tech[o], col="dodgerblue", lwd=2)
+#cur.spike <- isSpike(sce)
+#points(var.out$mean[cur.spike], var.out$total[cur.spike], col="red", pch=16)
+
+
+hvg.out <- var.out[which(var.out$FDR <= 0.2 & var.out$bio >= 0.5),]
+hvg.out <- hvg.out[order(hvg.out$bio, decreasing=TRUE),] 
+nrow(hvg.out)
+
+write.table(file="hsc_hvg.tsv", hvg.out, sep="\t", quote=FALSE, col.names=NA)
+head(hvg.out)
+
+plotExpression(sce, rownames(hvg.out)[1:30]) + FONTSIZE +ggtitle("Top 30 HVG genes across all data")
+
+var.cor <- correlatePairs(sce, subset.row=rownames(hvg.out))
+write.table(file="hsc_cor.tsv", var.cor, sep="\t", quote=FALSE, row.names=FALSE)
+head(var.cor)
+
+#too many correlated genes-fixed
+sig.cor <- var.cor$FDR <= 0.01
+summary(sig.cor)
+
+#these genes will be used for the tSNE plots by default...
+
+chosen <- var.cor$gene1[sig.cor]
+chosen <-c(chosen,var.cor$gene2[sig.cor] )
+chosen <-unique(chosen)
+chosen <-na.omit(chosen)
+print("number of chosen genes for plots")
+length(chosen)
+print("number of HVG genes for plots")
+length(hvg.out)
+
+
+```
+
+***
+
+## Make a Heatmap to Show a Random Sample of 100 of the Top HVG Genes
+Genes are row mean centered
+
+```{r heatmaps101, echo=FALSE}
+#make a heatmap
+norm.exprs <- exprs(sce[chosen,])
+heat.vals <- norm.exprs - rowMeans(norm.exprs)
+asample<-sample(rownames(heat.vals),100)
+library(gplots)
+heat.out <- heatmap.2(heat.vals[asample,], col=bluered, symbreak=TRUE, trace='none', cexRow=0.6,labRow=T,labCol=FALSE)
+```
+## PCA of All Data From the Most Variable Genes
+Colouring by log total features using the chosen feature set.  Note that this only accounts for 
+~14% of the variance in the plots.  There are some clusters with higher levels of expression than others
+although note that the QC metric used is calculated before normalisation- normalisation should minimise the impact of this issue on the analysis.
+
+```{r total_pca, echo=FALSE}
+sce <-runPCA(sce, subset_row=chosen)
+plotPCA(sce, colour_by ="CellCycle") +FONTSIZE +COLOURS_DIS
+```
+
+***
+
+## tSNE Plot Coloured by Total Features per Sample
+tSNE is a dimensional reduction methods similar to PCA.
+
+tSNE of all data using the set of most variable genes and colouring by log total features using the chosen feature set.  Again this annotation is generated prior to normalisation
+
+tSNE generates three large clusters but also several smaller clusters not visible in the PCA plot- tSNE will become the primary dimensional reduction method used in this analysis.
+
+***
+
+```{r total_tSNE, echo=FALSE}
+sce <-runTSNE(sce)
+sce$sum <-sce$stats_selected_cells$sum
+
+plotTSNE(sce,colour_by="sum") +FONTSIZE 
+
+```
+
+***
+
+## Selection of the tSNE 'Perplexity' Tuning Parameter
+Dimensional reduction plots can give various results depending upon setting of tuning parameters.
+Here we are looking for that tSNE visualisation to be relatively stable within the recommended Perplexity range
+
+
+We run the same scan again with a tSNE perplexity scan on total count data...5,10,15,20
+Note these plots are not saved to the sce object
+
+
+Plots are relatively stable.  This suggests that the features detected in the data are relatively robust.  We chose to run with perplexity =10 for this analysis
+
+```{r total_tSNE2, echo=FALSE}
+
+# Run tSNE perplexity scan coloured by library size
+# Uses helper function defined in single_cell_functions2.R
+tsne_plots_sum <- run_tsne_perplexity_scan(sce, chosen, colour_by = "sum")
+gridExtra::grid.arrange(grobs = tsne_plots_sum, ncol = 2)
+
+# Set final tSNE using chosen perplexity of 10 (stable across perplexity range)
+set.seed(MY_SEED)
+sce <- runTSNE(sce, feature_set = chosen, perplexity = 10)
+
+```
+
+***
+
+## Loading 'Target' File and Building Sample Annotation
+
+Load targets file and build this annotation into the SingleCellExperiment object.
+
+
+```{r set_targets, echo=FALSE}
+
+print("Column names of loaded \"targets\" file")
+colnames(targets)
+
+#add colnames to filtered object
+colnames2.keep<- as.character(targets$ERR) %in% colnames(sce)
+sum(colnames2.keep)
+
+
+# Run tSNE perplexity scan coloured by culture condition (Type)
+tsne_plots_type <- run_tsne_perplexity_scan(sce, chosen, colour_by = "Type",
+                                             labels = c("All samples Perplexity 5",
+                                                        "All samples Perplexity 10",
+                                                        "All samples Perplexity 15",
+                                                        "All samples Perplexity 20"))
+gridExtra::grid.arrange(grobs = tsne_plots_type, ncol = 2)
+
+# Single final plot at chosen perplexity of 10
+set.seed(MY_SEED)
+plotTSNE(sce, colour_by = "Type") + FONTSIZE + ggtitle("Perplexity 10")
+```
+
+
+
+## Plot final PCA of All Data Coloured by Type Loaded From the Targets  File
+```{r last_pca2, echo=FALSE}
+plotPCA(sce,colour_by="Type") + FONTSIZE +COLOURS_DIS
+```
+
+
+
+## Final PCA Plot With All SCE Data
+Again this uses all the data
+```{r pca_plots, echo=FALSE}
+plotPCA(sce, colour_by="Type") + FONTSIZE +COLOURS_DIS
+```
+
+#Examine all ZScan Genes in the Expression Data ..
+
+```{r serum_variable, echo=FALSE}
+
+experiment <- data.frame(sce$Type)
+rownames(experiment) <-colnames(sce)
+
+#Just use this grep to find all genes with names containing "Zscan"!
+zscans <-grep("Zscan",rownames(sce))
+norm.exprs <- exprs(sce[zscans,])
+heat.vals <- norm.exprs - rowMeans(norm.exprs)
+
+#add pretty heatmap here...
+pheatmap(heat.vals, show_colnames = F,annotation_col=experiment)
+
+```
+## All ZScan Correlated Genes in the Data
+
+Examine all  genes in the expression data by using correlation to one ZScan profile. This finds genes that have a similar profile to Zscan4a but are not necessarily annotated as 
+ZScan genes.
+
+***
+```{r serum_variable_zscan, echo=FALSE}
+
+experiment <- data.frame(sce$Type)
+rownames(experiment) <-colnames(sce)
+
+normt.exprs <- t(exprs(sce))
+correlated <- cor(normt.exprs,normt.exprs[,"Zscan4a"],method="spearman")
+correlated <-correlated[order(correlated,decreasing=T),]
+
+# Spearman correlation threshold of 0.4 was chosen to identify genes with a
+# moderate-to-strong co-expression relationship with Zscan4a. This is a
+# deliberately inclusive threshold — a stricter cutoff (e.g. 0.6) would miss
+# genuine 2C-like co-expressed genes that show noisy single-cell expression.
+# Spearman rank correlation is used rather than Pearson as it is more robust
+# to the zero-inflated, non-normally distributed counts typical in scRNA-seq.
+keep_me <- as.numeric(correlated) > 0.4
+table(keep_me)
+
+keep_names <-rownames(as.matrix(correlated[keep_me]))
+
+
+norm.exprs <- exprs(sce[keep_names[keep_names %in% rownames(sce)],])
+
+heat.vals <- norm.exprs - rowMeans(norm.exprs)
+
+#add pretty heatmap here...
+pheatmap(heat.vals, show_colnames = F,annotation_col=experiment,fontsize_row = 6)
+
+```
+
+***
+
+## Session Information
+
+Recording the session information ensures this analysis is fully reproducible.
+All package versions, R version, and operating system details are captured here.
+
+```{r session_info, echo=TRUE}
+sessionInfo()
+```
+
+
