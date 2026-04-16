@@ -6,8 +6,8 @@ The primary goal is the identification of the rare **2C-like totipotent state** 
 
 ##  Project Structure
 
-- [**Python / Scanpy Workflow**](./python_scanpy/): A modern, scalable implementation using the Scanpy ecosystem.
-- [**R / Bioconductor Workflow**](./r_bioconductor/): The classic genomic analysis pipeline using `scran` and `scater`.
+- [**Python / Scanpy Workflow**](./Python_Scanpy/): A modern, scalable implementation using the Scanpy ecosystem.
+- [**R / Bioconductor Workflow**](./R_Bioconductor/): The classic genomic analysis pipeline using `scran` and `scater`.
 
 ##  Repository Structure & Organization
 
