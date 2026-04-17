@@ -59,6 +59,40 @@ We analyzed 869 cells to identify a signature subpopulation expressing the *Zsca
 
 - Dimensionality Reduction: Utilizing PCA and t-SNE to visualize the separation of culture conditions and the emergence of the 2C-like cluster.
 
+## Implementation Mapping
+| Feature | Bioconductor | Scanpy | Seurat |
+|--------|-------------|--------|--------|
+| HVG Selection | `modelGeneVar` | `highly_variable_genes` (Seurat_v3) | `FindVariableFeatures` (VST) |
+| Annotation | biomaRt | MyGene API | org.Mm.eg.db |
+| Data Structure | SingleCellExperiment | AnnData | Seurat Object |
+
+## Methodological Comparison
+
+### Highly Variable Genes (HVGs)
+- Bioconductor (`modelGeneVar`) uses a variance decomposition approach.
+- Seurat (VST) stabilizes variance using a transformation.
+- Scanpy (Seurat_v3 flavor) mimics Seurat but may differ slightly due to implementation.
+
+Observation: The number of HVGs selected differed slightly across methods, which affected downstream clustering.
+
+---
+
+### Clustering
+- Seurat uses Louvain/Leiden clustering via `FindClusters`.
+- Scanpy typically uses Leiden clustering.
+- Parameter choices (resolution) significantly influenced cluster granularity.
+
+Observation: Scanpy produced slightly more clusters at the same resolution compared to Seurat.
+
+---
+
+### Normalization
+- Seurat: `LogNormalize`
+- Scanpy: `normalize_total` + `log1p`
+- Bioconductor: `scran` normalization
+
+Observation: Differences in normalization led to minor variation in gene expression scaling but did not drastically change biological interpretation.
+
 ## Data Source
 - **Dataset:** ArrayExpress [E-MTAB-2600](https://www.ebi.ac.uk/biostudies/arrayexpress/studies/E-MTAB-2600)
 - **Input:** Ensembl-indexed counts matrix and metadata targets file.
